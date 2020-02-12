@@ -3,23 +3,35 @@ module Bosh::Director
     class ReleaseManager
       include ApiHelper
 
+      # TODO(JM): Rename get_all_releases to all_releases
       def get_all_releases
-        releases = Models::Release.order_by(Sequel.asc(:name)).map do |release|
-          release_versions = sorted_release_versions(release)
+        release_versions = Bosh::Director::Models::ReleaseVersion
+          .join(:releases, id: :release_id)
+          .select_all(:release_versions)
+          .select_append(:name)
+          .order_by(Sequel.asc(:name))
+          .all.group_by { |rv| rv[:release_id] }
+          .map do |_, versions|
+          release_name = versions[0][:name]
+          sorted_versions = sorted_release_versions(versions)
+
           {
-            'name' => release.name,
-            'release_versions' => release_versions
+            'name' => release_name,
+            'release_versions' => sorted_versions,
           }
         end
 
-        releases
+        release_versions
       end
 
-      def sorted_release_versions(release, prefix = nil)
-        sorted_version_tuples = release.versions_dataset.all.map do |version|
+      # TODO
+      # WRONG: Current assumption around input in codebase is a `Models::Release` object
+      # Shaan's refactor changes this method's input to be an array of `Models::ReleaseVersion`
+      def sorted_release_versions(release_versions, prefix = nil)
+        sorted_version_tuples = release_versions.map do |version|
           {
             provided: version,
-            parsed: Bosh::Common::Version::ReleaseVersion.parse(version.values[:version])
+            parsed: Bosh::Common::Version::ReleaseVersion.parse(version.values[:version]),
           }
         end.sort_by { |rv| rv[:parsed] }
 
@@ -29,23 +41,28 @@ module Bosh::Director
           end
         end
 
+        # Build a hashmap of release_version_id => bool by looking at the Deployments <-> ReleaseVersions join table
+        @currently_deployed_release_versions ||= Bosh::Director::Config.db[:deployments_release_versions]
+          .group_and_count(:release_version_id)
+          .all
+          .each_with_object({}) { |record, deployments| deployments[record[:release_version_id]] = record[:count].positive?; }
+
         sorted_version_tuples.map do |version|
           provided = version[:provided]
           {
             'version' => provided.version.to_s,
             'commit_hash' => provided.commit_hash,
             'uncommitted_changes' => provided.uncommitted_changes,
-            'currently_deployed' => !provided.deployments.empty?,
-            'job_names' => provided.templates.map(&:name),
+            'currently_deployed' => @currently_deployed_release_versions[provided.id].present?,
+            'job_names' => provided.templates_dataset.select_map(:name),
           }
         end
       end
 
       def find_by_name(name)
-        release = Models::Release[:name => name]
-        if release.nil?
-          raise ReleaseNotFound, "Release '#{name}' doesn't exist"
-        end
+        release = Models::Release[name: name]
+        raise ReleaseNotFound, "Release '#{name}' doesn't exist" if release.nil?
+
         release
       end
 
@@ -61,11 +78,9 @@ module Bosh::Director
           end
           if version == new_formatted_version.to_s
             old_formatted_version = new_formatted_version.to_old_format
-            if old_formatted_version
-              release_version = dataset.filter(:version => old_formatted_version).first
-            end
+            release_version = dataset.filter(version: old_formatted_version).first if old_formatted_version
           else
-            release_version = dataset.filter(:version => new_formatted_version.to_s).first
+            release_version = dataset.filter(version: new_formatted_version.to_s).first
           end
           if release_version.nil?
             raise ReleaseVersionNotFound,
@@ -82,9 +97,7 @@ module Bosh::Director
       end
 
       def create_release_from_file_path(username, release_path, options)
-        unless File.exists?(release_path)
-          raise DirectorError, "Failed to create release: file not found - #{release_path}"
-        end
+        raise DirectorError, "Failed to create release: file not found - #{release_path}" unless File.exist?(release_path)
 
         JobQueue.new.enqueue(username, Jobs::UpdateRelease, 'create release', [release_path, options])
       end
@@ -98,7 +111,8 @@ module Bosh::Director
           username,
           Jobs::ExportRelease,
           "export release: '#{release_name}/#{release_version}' for '#{stemcell_os}/#{stemcell_version}'",
-          [deployment_name, release_name, release_version, stemcell_os, stemcell_version, sha2, :jobs => jobs])
+          [deployment_name, release_name, release_version, stemcell_os, stemcell_version, sha2, jobs: jobs],
+        )
       end
     end
   end

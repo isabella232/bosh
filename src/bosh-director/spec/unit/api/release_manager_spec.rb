@@ -35,50 +35,71 @@ module Bosh::Director
     end
 
     describe '#get_all_releases' do
+      describe 'performance' do
+        before do
+          for i in 0..500
+            release = Models::Release.make(name: "release-#{i}")
+
+            for j in 0..10
+              Models::ReleaseVersion.make(version: "#{j}.0.0", release: release)
+            end
+          end
+        end
+
+        it 'works' do
+          require 'pry'
+          binding.pry
+
+          subject.get_all_releases
+        end
+      end
+
       it 'gets all releases' do
-        release_1 = Models::Release.make(name: 'release-a')
-        release_2 = Models::Release.make(name: 'release-b')
-        deployment_1 = Models::Deployment.make
-        template_1 = Models::Template.make(name: 'job-1', release: release_1)
-        template_2 = Models::Template.make(name: 'job-2', release: release_2)
-        version_1 = Models::ReleaseVersion.make(version: 1, release: release_1)
-        version_1.add_template(template_1)
-        version_1.add_deployment(deployment_1)
-        version_2 = Models::ReleaseVersion.make(version: 2, release: release_2)
-        version_2.add_template(template_2)
+        release1 = Models::Release.make(name: 'release-a')
+        release2 = Models::Release.make(name: 'release-b')
+        deployment1 = Models::Deployment.make
+        template1 = Models::Template.make(name: 'job-1', release: release1)
+        template2 = Models::Template.make(name: 'job-2', release: release2)
+        version1 = Models::ReleaseVersion.make(version: 1, release: release1)
+        version1.add_template(template1)
+        version1.add_deployment(deployment1)
+        version2 = Models::ReleaseVersion.make(version: 2, release: release2)
+        version2.add_template(template2)
 
         releases = subject.get_all_releases
 
         expect(releases).to eq([{
-                'name' => 'release-a',
-                'release_versions' => [{
-                    'version' => '1',
-                    'commit_hash' => version_1.commit_hash,
-                    'uncommitted_changes' => version_1.uncommitted_changes,
-                    'currently_deployed' => true,
-                    'job_names' => ['job-1']
-                  }]
-              },
-              'name' => 'release-b',
-              'release_versions' => [{
-                  'version' => '2',
-                  'commit_hash' => version_2.commit_hash,
-                  'uncommitted_changes' => version_2.uncommitted_changes,
-                  'currently_deployed' => false,
-                  'job_names' => ['job-2'],
-                }]
-            ])
+          'name' => 'release-a',
+          'release_versions' => [{
+            'version' => '1',
+            'commit_hash' => version1.commit_hash,
+            'uncommitted_changes' => version1.uncommitted_changes,
+            'currently_deployed' => true,
+            'job_names' => ['job-1'],
+          }],
+        },
+                                'name' => 'release-b',
+                                'release_versions' => [{
+                                  'version' => '2',
+                                  'commit_hash' => version2.commit_hash,
+                                  'uncommitted_changes' => version2.uncommitted_changes,
+                                  'currently_deployed' => false,
+                                  'job_names' => ['job-2'],
+                                }]])
       end
 
       it 'orders releases in ascending order of release name' do
-        Models::Release.make(name: 'b')
-        Models::Release.make(name: '1c')
-        Models::Release.make(name: 'a')
+        r = Models::Release.make(name: 'b')
+        Models::ReleaseVersion.make(version: 1, release: r)
+        r = Models::Release.make(name: '1c')
+        Models::ReleaseVersion.make(version: 1, release: r)
+        r = Models::Release.make(name: 'a')
+        Models::ReleaseVersion.make(version: 1, release: r)
 
         releases = subject.get_all_releases
 
-        release_names = releases.map{ |release| release['name'] }
-        expect(release_names).to eq(['1c', 'a', 'b'])
+        release_names = releases.map { |release| release['name'] }
+        expect(release_names).to eq(%w[1c a b])
       end
 
       it 'orders releases in ascending order of release version' do
@@ -90,8 +111,8 @@ module Bosh::Director
         releases = subject.get_all_releases
 
         release_versions = releases.first['release_versions']
-        release_version_numbers = release_versions.map{ |release_version| release_version['version'] }
-        expect(release_version_numbers).to eq(['1', '3', '10'])
+        release_version_numbers = release_versions.map { |release_version| release_version['version'] }
+        expect(release_version_numbers).to eq(%w[1 3 10])
       end
     end
 
@@ -143,7 +164,7 @@ module Bosh::Director
       let(:release_path) { '/path/to/release.tgz' }
 
       context 'when release file exists' do
-        before { allow(File).to receive(:exists?).with(release_path).and_return(true) }
+        before { allow(File).to receive(:exist?).with(release_path).and_return(true) }
 
         it 'enqueues a task to upload a release file' do
           rebase = double('bool')
@@ -167,9 +188,9 @@ module Bosh::Director
 
           expect(job_queue).to_not receive(:enqueue)
 
-          expect {
+          expect do
             expect(subject.create_release_from_file_path(username, release_path, rebase))
-          }.to raise_error(DirectorError, /Failed to create release: file not found/)
+          end.to raise_error(DirectorError, /Failed to create release: file not found/)
         end
       end
     end
@@ -179,7 +200,8 @@ module Bosh::Director
 
       it 'enqueues a DJ job' do
         expect(job_queue).to receive(:enqueue).with(
-          username, Jobs::DeleteRelease, "delete release: #{release.name}", [release.name, options]).and_return(task)
+          username, Jobs::DeleteRelease, "delete release: #{release.name}", [release.name, options]
+        ).and_return(task)
 
         expect(subject.delete_release(username, release, options)).to eq(task)
       end
@@ -187,10 +209,10 @@ module Bosh::Director
 
     describe '#find_version' do
       before do
-        @release = BD::Models::Release.make(:name => 'fake-release-name')
-        @final_release_version = BD::Models::ReleaseVersion.make(:release => @release, :version => '9')
-        @old_dev_release_version = BD::Models::ReleaseVersion.make(:release => @release, :version => '9.1-dev')
-        @new_dev_release_version = BD::Models::ReleaseVersion.make(:release => @release, :version => '9+dev.2')
+        @release = BD::Models::Release.make(name: 'fake-release-name')
+        @final_release_version = BD::Models::ReleaseVersion.make(release: @release, version: '9')
+        @old_dev_release_version = BD::Models::ReleaseVersion.make(release: @release, version: '9.1-dev')
+        @new_dev_release_version = BD::Models::ReleaseVersion.make(release: @release, version: '9+dev.2')
       end
 
       context 'when version as specified exists in the database' do
@@ -210,9 +232,9 @@ module Bosh::Director
 
         context 'when version as specified is an invalid format' do
           it 'raises an error' do
-            expect {
+            expect do
               subject.find_version(@release, '1+2+3')
-            }.to raise_error(ReleaseVersionInvalid)
+            end.to raise_error(ReleaseVersionInvalid)
           end
         end
 
@@ -224,13 +246,13 @@ module Bosh::Director
 
         context 'when formatted version does not exist in the database' do
           it 'raises an error' do
-            expect {
+            expect do
               subject.find_version(@release, '9.1')
-            }.to raise_error(ReleaseVersionNotFound)
+            end.to raise_error(ReleaseVersionNotFound)
 
-            expect {
+            expect do
               subject.find_version(@release, '9.1.3-dev')
-            }.to raise_error(ReleaseVersionNotFound)
+            end.to raise_error(ReleaseVersionNotFound)
           end
         end
       end
