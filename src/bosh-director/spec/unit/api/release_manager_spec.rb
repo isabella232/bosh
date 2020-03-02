@@ -97,8 +97,9 @@ module Bosh::Director
       end
     end
 
-    describe '#sorted_release_version' do
+    describe '#sorted_release_versions' do
       let(:release) { Models::Release.make(name: 'release-a') }
+      let(:release_versions) { release.versions }
 
       before do
         Models::ReleaseVersion.make(version: '1', release: release)
@@ -108,7 +109,7 @@ module Bosh::Director
       end
 
       it 'returns a transformed array' do
-        sorted_release_versions = subject.sorted_release_versions(release)
+        sorted_release_versions = subject.sorted_release_versions(release_versions)
 
         expect(sorted_release_versions[0]['version']).to eq('1')
         expect(sorted_release_versions[1]['version']).to eq('2.1')
@@ -118,7 +119,7 @@ module Bosh::Director
 
       context 'when filtering by version prefix' do
         it 'returns a limited version list' do
-          sorted_release_versions = subject.sorted_release_versions(release, '2')
+          sorted_release_versions = subject.sorted_release_versions(release_versions, '2')
 
           expect(sorted_release_versions[0]['version']).to eq('2.1')
           expect(sorted_release_versions[1]['version']).to eq('2.2')
@@ -126,14 +127,14 @@ module Bosh::Director
         end
 
         it 'returns a limited version list' do
-          sorted_release_versions = subject.sorted_release_versions(release, '2.2')
+          sorted_release_versions = subject.sorted_release_versions(release_versions, '2.2')
 
           expect(sorted_release_versions[0]['version']).to eq('2.2')
         end
 
         context 'using a non-existant prefix' do
           it 'returns an empty list' do
-            sorted_release_versions = subject.sorted_release_versions(release, '3')
+            sorted_release_versions = subject.sorted_release_versions(release_versions, '3')
 
             expect(sorted_release_versions).to eq([])
           end

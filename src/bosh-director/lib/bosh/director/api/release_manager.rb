@@ -44,7 +44,7 @@ module Bosh::Director
             'commit_hash' => provided.commit_hash,
             'uncommitted_changes' => provided.uncommitted_changes,
             'currently_deployed' => currently_deployed_release_versions[provided.id].present?,
-            'job_names' => job_names_by_release_id[provided.release_id],
+            'job_names' => job_names_by_release_id[provided.release_id] || [],
           }
         end
       end
