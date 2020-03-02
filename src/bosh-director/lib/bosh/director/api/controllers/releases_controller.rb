@@ -33,7 +33,7 @@ module Bosh::Director
       end
 
       get '/', scope: :read_releases do
-        releases = @release_manager.get_all_releases
+        releases = @release_manager.all_releases
 
         json_encode(releases)
       end

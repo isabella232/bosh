@@ -34,26 +34,7 @@ module Bosh::Director
       end
     end
 
-    describe '#get_all_releases' do
-      describe 'performance' do
-        before do
-          for i in 0..500
-            release = Models::Release.make(name: "release-#{i}")
-
-            for j in 0..10
-              Models::ReleaseVersion.make(version: "#{j}.0.0", release: release)
-            end
-          end
-        end
-
-        it 'works' do
-          require 'pry'
-          binding.pry
-
-          subject.get_all_releases
-        end
-      end
-
+    describe '#all_releases' do
       it 'gets all releases' do
         release1 = Models::Release.make(name: 'release-a')
         release2 = Models::Release.make(name: 'release-b')
@@ -66,7 +47,7 @@ module Bosh::Director
         version2 = Models::ReleaseVersion.make(version: 2, release: release2)
         version2.add_template(template2)
 
-        releases = subject.get_all_releases
+        releases = subject.all_releases
 
         expect(releases).to eq([{
           'name' => 'release-a',
@@ -96,7 +77,7 @@ module Bosh::Director
         r = Models::Release.make(name: 'a')
         Models::ReleaseVersion.make(version: 1, release: r)
 
-        releases = subject.get_all_releases
+        releases = subject.all_releases
 
         release_names = releases.map { |release| release['name'] }
         expect(release_names).to eq(%w[1c a b])
@@ -108,7 +89,7 @@ module Bosh::Director
         Models::ReleaseVersion.make(version: 10, release: release)
         Models::ReleaseVersion.make(version: 1, release: release)
 
-        releases = subject.get_all_releases
+        releases = subject.all_releases
 
         release_versions = releases.first['release_versions']
         release_version_numbers = release_versions.map { |release_version| release_version['version'] }

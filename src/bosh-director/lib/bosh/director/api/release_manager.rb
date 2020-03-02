@@ -3,8 +3,7 @@ module Bosh::Director
     class ReleaseManager
       include ApiHelper
 
-      # TODO(JM): Rename get_all_releases to all_releases
-      def get_all_releases
+      def all_releases
         release_versions = Bosh::Director::Models::ReleaseVersion
           .join(:releases, id: :release_id)
           .select_all(:release_versions)
@@ -24,9 +23,6 @@ module Bosh::Director
         release_versions
       end
 
-      # TODO
-      # WRONG: Current assumption around input in codebase is a `Models::Release` object
-      # Shaan's refactor changes this method's input to be an array of `Models::ReleaseVersion`
       def sorted_release_versions(release_versions, prefix = nil)
         sorted_version_tuples = release_versions.map do |version|
           {
@@ -41,20 +37,14 @@ module Bosh::Director
           end
         end
 
-        # Build a hashmap of release_version_id => bool by looking at the Deployments <-> ReleaseVersions join table
-        @currently_deployed_release_versions ||= Bosh::Director::Config.db[:deployments_release_versions]
-          .group_and_count(:release_version_id)
-          .all
-          .each_with_object({}) { |record, deployments| deployments[record[:release_version_id]] = record[:count].positive?; }
-
         sorted_version_tuples.map do |version|
           provided = version[:provided]
           {
             'version' => provided.version.to_s,
             'commit_hash' => provided.commit_hash,
             'uncommitted_changes' => provided.uncommitted_changes,
-            'currently_deployed' => @currently_deployed_release_versions[provided.id].present?,
-            'job_names' => provided.templates_dataset.select_map(:name),
+            'currently_deployed' => currently_deployed_release_versions[provided.id].present?,
+            'job_names' => job_names_by_release_id[provided.release_id],
           }
         end
       end
@@ -113,6 +103,21 @@ module Bosh::Director
           "export release: '#{release_name}/#{release_version}' for '#{stemcell_os}/#{stemcell_version}'",
           [deployment_name, release_name, release_version, stemcell_os, stemcell_version, sha2, jobs: jobs],
         )
+      end
+
+      private
+
+      # Build a hashmap of release_version_id => bool by looking at the Deployments <-> ReleaseVersions join table
+      def currently_deployed_release_versions
+        @currently_deployed_release_versions ||= Bosh::Director::Config.db[:deployments_release_versions]
+          .group_and_count(:release_version_id)
+          .all
+          .each_with_object({}) { |record, deployments| deployments[record[:release_version_id]] = record[:count].positive?; }
+      end
+
+      # Build a hashmap of release_id => list of strings by looking at the Templates table
+      def job_names_by_release_id
+        @job_names_by_release_id ||= Bosh::Director::Models::Template.select_hash_groups(:release_id, :name)
       end
     end
   end

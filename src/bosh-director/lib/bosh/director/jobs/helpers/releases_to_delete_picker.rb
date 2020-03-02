@@ -7,7 +7,7 @@ module Bosh::Director::Jobs
 
       def pick(releases_to_keep)
         unused_releases = @release_manager
-          .get_all_releases
+          .all_releases
           .map do |release|
           {
             'name' => release['name'],

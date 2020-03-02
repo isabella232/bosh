@@ -186,7 +186,7 @@ module Bosh::Director
       resolvable_version = match_resolvable_version(release_def['version'])
       if resolvable_version
         release = release_manager.find_by_name(release_def['name'])
-        return release_manager.sorted_release_versions(release, resolvable_version[:prefix]).last['version']
+        return release_manager.sorted_release_versions(release.versions, resolvable_version[:prefix]).last['version']
       end
 
       release_def['version'].to_s
